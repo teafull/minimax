@@ -69,6 +69,16 @@ impl Client {
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
+
+    /// Create a chat builder with automatic tool execution.
+    /// The executor will be called whenever the model requests a tool.
+    pub fn chat_with_executor(
+        &self,
+        tools: Vec<crate::types::Tool>,
+        executor: std::sync::Arc<dyn ToolExecutor>,
+    ) -> ChatWithExecutor<'_> {
+        ChatWithExecutor::new(self, tools, executor)
+    }
 }
 
 pub struct Models<'a> {
