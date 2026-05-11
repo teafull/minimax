@@ -92,3 +92,17 @@ impl<'a> Models<'a> {
         self.client.request(request)
     }
 }
+
+/// Trait for executing tool calls returned by the model.
+/// Implement this trait and pass it to `ChatWithExecutor` to handle
+/// tool calls automatically.
+pub trait ToolExecutor: Send + Sync {
+    /// Execute a tool call with the given name and arguments.
+    /// Returns the tool result as a JSON string, or an error string
+    /// which will be passed to the model for handling.
+    fn execute(
+        &self,
+        tool_name: &str,
+        arguments: serde_json::Value,
+    ) -> Box<dyn std::error::Error + Send + Sync>;
+}
