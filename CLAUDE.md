@@ -20,14 +20,30 @@ cargo run -p minimax           # Run the test program
 ## Architecture
 
 **Workspace structure:**
-- `crates/openai/` - OpenAI-compatible API library (Bearer token auth)
-- `crates/anthropic/` - Anthropic-compatible API library (X-Api-Key header)
-- `crates/minimax/` - Test program that uses both interfaces
+- `crates/openai/` - OpenAI-compatible API library (`Bearer` token auth)
+- `crates/anthropic/` - Anthropic-compatible API library (`X-Api-Key` header)
+- `crates/minimax/` - Integration test program that exercises both interfaces
 
 **Key patterns:**
-- Builder pattern for API requests (`ChatBuilder`)
+- Builder pattern for API requests (`ChatBuilder`) - chainable `.model()`, `.messages()`, `.tools()`, etc.
 - `Client` / `AnthropicClient` structs own the HTTP client and API key
 - `thiserror` for error handling with `Error` enum and `Result<T>` type
+- Both crates support streaming via `send_stream()` returning an iterator of chunks
+- Both crates support function calling via `tools` parameter
+- `crates/openai` provides `ToolExecutor` trait + `chat_with_executor()` for automatic tool-loop handling
+
+**ToolExecutor API (crates/openai):**
+```rust
+pub trait ToolExecutor: Send + Sync {
+    fn execute(&self, tool_name: &str, arguments: serde_json::Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+// Usage:
+client.chat_with_executor(vec![weather_tool], Arc::new(WeatherExecutor))
+    .model("MiniMax-M2.7")
+    .messages(vec![Message::user("北京天气怎么样？")])
+    .send()?;
+```
 
 **API endpoints:**
 - OpenAI: `https://api.minimaxi.com/v1/chat/completions`
@@ -39,9 +55,9 @@ cargo run -p minimax           # Run the test program
 - `serde` / `serde_json` - JSON serialization
 - `thiserror` - Error handling
 
-## Running Tests
+## Running the Integration Test
 
-Set API key and run:
+The `minimax` crate is an integration test program that requires a live API key:
 ```bash
 MINIMAX_API_KEY=your-key cargo run -p minimax
 ```
