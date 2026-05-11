@@ -98,11 +98,11 @@ impl<'a> Models<'a> {
 /// tool calls automatically.
 pub trait ToolExecutor: Send + Sync {
     /// Execute a tool call with the given name and arguments.
-    /// Returns the tool result as a JSON string, or an error string
+    /// Returns the tool result as a JSON string on success, or an error
     /// which will be passed to the model for handling.
     fn execute(
         &self,
         tool_name: &str,
         arguments: serde_json::Value,
-    ) -> Box<dyn std::error::Error + Send + Sync>;
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
 }
