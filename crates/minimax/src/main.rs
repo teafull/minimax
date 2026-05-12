@@ -29,8 +29,8 @@ fn main() {
     println!("\n=== Testing OpenAI Hotboard ===");
     test_openai_hotboard(&token_key);
 
-    // println!("\n=== Testing Anthropic Function Calling ===");
-    // test_anthropic_function_call(&token_key);
+    println!("\n=== Testing Anthropic Function Calling ===");
+    test_anthropic_function_call(&token_key);
 }
 
 fn test_openai_models(api_key: &str) {
