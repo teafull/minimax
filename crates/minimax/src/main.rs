@@ -348,7 +348,9 @@ fn test_openai_hotboard(api_key: &str) {
 }
 
 fn test_anthropic_function_call(api_key: &str) {
-    use anthropic::{AnthropicClient, Message, Tool};
+    use anthropic::{AnthropicClient, Message, Tool, ToolExecutor};
+    use std::sync::Arc;
+    use serde_json::Value;
 
     let client = AnthropicClient::new(api_key).expect("Failed to create Anthropic client");
 
@@ -368,71 +370,30 @@ fn test_anthropic_function_call(api_key: &str) {
         }),
     };
 
-    // 第一次请求：用户问天气
-    println!("Step 1: User asks about weather");
-    let result = client.anthropic()
-        .model("MiniMax-M2.7")
-        .messages(vec![Message::user("北京今天天气怎么样？")])
-        .tools(vec![get_weather_tool.clone()])
-        .max_tokens(1024)
-        .send();
-
-    let response = match result {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("  Error: {:?}", e);
-            return;
-        }
-    };
-
-    println!("  Response:");
-    println!("  ID: {}", response.id);
-
-    // 查找工具调用
-    let mut tool_use_id = None;
-    let mut location = "北京".to_string();
-    for block in &response.content {
-        match block {
-            anthropic::ContentBlock::Text(text) => println!("  Text: {}", text.text),
-            anthropic::ContentBlock::Thinking(_) => {}
-            anthropic::ContentBlock::ToolUse(tool) => {
-                println!("  Tool Use: {} - {:?}", tool.name, tool.input);
-
-                // 解析 location 参数
-                if let Some(loc) = tool.input.get("location").and_then(|v| v.as_str()) {
-                    location = loc.to_string();
-                }
-
-                tool_use_id = Some(tool.id.clone());
+    // 定义 executor
+    struct WeatherExecutor;
+    impl ToolExecutor for WeatherExecutor {
+        fn execute(&self, tool_name: &str, args: Value) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            if tool_name == "get_weather" {
+                let location = args["location"].as_str().unwrap_or("北京");
+                let result = call_weather_api(location);
+                Ok(result)
+            } else {
+                Err(format!("Unknown tool: {}", tool_name).into())
             }
         }
     }
 
-    if tool_use_id.is_none() {
-        println!("  No tool call found");
-        return;
-    }
-
-    let tool_use_id = tool_use_id.unwrap();
-
-    // 调用真实天气 API
-    println!("\nStep 2: Call weather API");
-    let weather_result = call_weather_api(&location);
-    println!("  Result: {}", weather_result);
-
-    // 第二次请求：带上工具结果
-    println!("\nStep 3: Send tool result back to LLM");
-    let response = client.anthropic()
-        .model("MiniMax-M2.7")
-        .messages(vec![
-            Message::user("北京今天天气怎么样？"),
-            Message::assistant(""),
-            Message::tool(&tool_use_id, &weather_result),
-        ])
-        .tools(vec![get_weather_tool])
-        .max_tokens(1024)
-        .send()
-        .expect("Failed to send message with tool result");
+    println!("Step 1: User asks about weather");
+    let response = client.chat_with_executor(
+        vec![get_weather_tool],
+        Arc::new(WeatherExecutor),
+    )
+    .model("MiniMax-M2.7")
+    .messages(vec![Message::user("上海今天天气怎么样？")])
+    .max_tokens(4096)
+    .send()
+    .expect("Failed to send message with tools");
 
     println!("  Final Response:");
     for block in &response.content {

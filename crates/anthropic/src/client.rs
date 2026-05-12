@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::types::{MessageResponse, Model, ModelList, StreamEvent, Tool};
+use crate::types::{MessageResponse, Model, ModelList, StreamEvent, Tool, ToolUseBlock};
 
 pub struct AnthropicClient {
     api_key: String,
@@ -27,6 +27,16 @@ impl AnthropicClient {
 
     pub fn models(&self) -> Models<'_> {
         Models::new(self)
+    }
+
+    /// Create a chat builder with automatic tool execution.
+    /// The executor will be called whenever the model requests a tool.
+    pub fn chat_with_executor(
+        &self,
+        tools: Vec<Tool>,
+        executor: std::sync::Arc<dyn ToolExecutor>,
+    ) -> ChatWithExecutor<'_> {
+        ChatWithExecutor::new(self, tools, executor)
     }
 
     pub fn request<T>(&self, request: reqwest::blocking::RequestBuilder) -> Result<T>
@@ -70,6 +80,149 @@ impl AnthropicClient {
 
     pub fn base_url(&self) -> &str {
         &self.base_url
+    }
+}
+
+/// Trait for executing tool calls returned by the model.
+/// Implement this trait and pass it to `ChatWithExecutor` to handle
+/// tool calls automatically.
+pub trait ToolExecutor: Send + Sync {
+    /// Execute a tool call with the given name and arguments.
+    /// Returns the tool result as a JSON string on success, or an error
+    /// which will be passed to the model for handling.
+    fn execute(
+        &self,
+        tool_name: &str,
+        arguments: serde_json::Value,
+    ) -> std::result::Result<String, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+/// Builder for chat requests with automatic tool execution.
+/// Use `AnthropicClient::chat_with_executor()` to create an instance.
+pub struct ChatWithExecutor<'a> {
+    client: &'a AnthropicClient,
+    tools: Vec<Tool>,
+    executor: std::sync::Arc<dyn ToolExecutor>,
+    model: String,
+    messages: Vec<crate::types::Message>,
+    system: Option<String>,
+    max_tokens: i32,
+    temperature: Option<f64>,
+    top_p: Option<f64>,
+}
+
+impl<'a> ChatWithExecutor<'a> {
+    pub fn new(
+        client: &'a AnthropicClient,
+        tools: Vec<Tool>,
+        executor: std::sync::Arc<dyn ToolExecutor>,
+    ) -> Self {
+        Self {
+            client,
+            tools,
+            executor,
+            model: String::new(),
+            messages: Vec::new(),
+            system: None,
+            max_tokens: 4096,
+            temperature: None,
+            top_p: None,
+        }
+    }
+
+    pub fn model(mut self, model: &str) -> Self {
+        self.model = model.to_string();
+        self
+    }
+
+    pub fn messages(mut self, messages: Vec<crate::types::Message>) -> Self {
+        self.messages = messages;
+        self
+    }
+
+    pub fn system(mut self, system: &str) -> Self {
+        self.system = Some(system.to_string());
+        self
+    }
+
+    pub fn max_tokens(mut self, tokens: i32) -> Self {
+        self.max_tokens = tokens;
+        self
+    }
+
+    pub fn temperature(mut self, temperature: f64) -> Self {
+        self.temperature = Some(temperature);
+        self
+    }
+
+    pub fn top_p(mut self, top_p: f64) -> Self {
+        self.top_p = Some(top_p);
+        self
+    }
+
+    pub fn send(self) -> crate::error::Result<MessageResponse> {
+        let mut messages = self.messages;
+        let model = self.model;
+
+        loop {
+            // Build request body
+            let url = format!("{}/messages", self.client.base_url());
+            let mut body = serde_json::json!({
+                "model": model,
+                "messages": messages,
+                "max_tokens": self.max_tokens,
+                "temperature": self.temperature,
+                "top_p": self.top_p,
+            });
+
+            if self.system.is_some() {
+                body["system"] = serde_json::json!(self.system);
+            }
+            if !self.tools.is_empty() {
+                body["tools"] = serde_json::to_value(&self.tools).unwrap();
+            }
+
+            let request = self.client.http_client().post(&url).json(&body);
+
+            // Send request and parse response
+            let response: MessageResponse = self.client.request(request)?;
+
+            // Check if response has tool uses
+            let tool_uses: Vec<ToolUseBlock> = response.content
+                .iter()
+                .filter_map(|block| {
+                    if let crate::types::ContentBlock::ToolUse(tu) = block {
+                        Some(tu.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if tool_uses.is_empty() {
+                // No tool calls - this is the final answer
+                return Ok(response);
+            }
+
+            // Process each tool call and add result messages
+            for tool_use in &tool_uses {
+                // Execute the tool
+                let result = self.executor.execute(&tool_use.name, tool_use.input.clone());
+
+                // Create tool result message (Anthropic uses role: "user" with tool_result content)
+                let tool_message = match result {
+                    Ok(result_str) => crate::types::Message::tool(&tool_use.id, &result_str),
+                    Err(e) => {
+                        let error_obj = serde_json::json!({
+                            "error": e.to_string()
+                        }).to_string();
+                        crate::types::Message::tool(&tool_use.id, &error_obj)
+                    }
+                };
+
+                messages.push(tool_message);
+            }
+        }
     }
 }
 
