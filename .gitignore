@@ -1,2 +1,4 @@
 /target
 /.claude/
+/gitInit.sh
+/docs/OpenAI 工具调用（Function Calling）的核心.MD

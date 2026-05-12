@@ -197,9 +197,9 @@ impl<'a> ChatWithExecutor<'a> {
             // Send request and parse response
             let response: crate::types::ChatResponse = self.client.request(request)?;
 
-            // Check if response has tool calls
+            // Check if response has tool calls (they come in message.tool_calls, not choice.tool_calls)
             let tool_calls = response.choices.first()
-                .and_then(|c| c.tool_calls.clone());
+                .and_then(|c| c.message.tool_calls.clone());
 
             let Some(tool_calls) = tool_calls else {
                 // No tool calls - this is the final answer
@@ -207,47 +207,45 @@ impl<'a> ChatWithExecutor<'a> {
             };
 
             // Process each tool call
-            for call in &tool_calls {
-                let arguments: serde_json::Value = match serde_json::from_str(&call.function.arguments) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        // On parse error, create error result and continue
-                        let error_msg = serde_json::json!({
-                            "error": format!("failed to parse arguments: {}", e)
-                        });
-                        messages.push(crate::types::Message::tool(&call.id, &error_msg.to_string()));
-                        continue;
-                    }
-                };
-
-                // Execute the tool
-                let result = self.executor.execute(&call.function.name, arguments);
-
-                // Create tool result message
-                let tool_message = match result {
-                    Ok(result_str) => crate::types::Message::tool(&call.id, &result_str),
-                    Err(e) => {
-                        let error_obj = serde_json::json!({
-                            "error": e.to_string()
-                        });
-                        crate::types::Message::tool(&call.id, &error_obj.to_string())
-                    }
-                };
-
-                messages.push(tool_message);
-            }
-
-            // Add assistant message with tool_calls to the conversation
+            // Add assistant message with tool_calls first (required order: user -> assistant -> tool)
             let assistant_message = crate::types::Message {
                 role: "assistant".to_string(),
                 content: response.choices.first()
                     .map(|c| c.message.content.clone())
                     .unwrap_or_default(),
                 name: None,
-                tool_calls: Some(tool_calls),
+                tool_calls: Some(tool_calls.clone()),
                 tool_call_id: None,
             };
             messages.push(assistant_message);
+
+            // Then process each tool call and add tool result messages
+            for call in &tool_calls {
+                let arguments: serde_json::Value = match serde_json::from_str(&call.function.arguments) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let error_msg = serde_json::json!({
+                            "error": format!("failed to parse arguments: {}", e)
+                        }).to_string();
+                        messages.push(crate::types::Message::tool(&call.id, &error_msg));
+                        continue;
+                    }
+                };
+
+                let result = self.executor.execute(&call.function.name, arguments);
+
+                let tool_message = match result {
+                    Ok(result_str) => crate::types::Message::tool(&call.id, &result_str),
+                    Err(e) => {
+                        let error_obj = serde_json::json!({
+                            "error": e.to_string()
+                        }).to_string();
+                        crate::types::Message::tool(&call.id, &error_obj)
+                    }
+                };
+
+                messages.push(tool_message);
+            }
         }
     }
 }

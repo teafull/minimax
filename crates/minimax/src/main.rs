@@ -26,8 +26,8 @@ fn main() {
     println!("\n=== Testing OpenAI Function Calling ===");
     test_openai_function_call(&token_key);
 
-    println!("\n=== Testing Anthropic Function Calling ===");
-    test_anthropic_function_call(&token_key);
+    // println!("\n=== Testing Anthropic Function Calling ===");
+    // test_anthropic_function_call(&token_key);
 }
 
 fn test_openai_models(api_key: &str) {
@@ -240,15 +240,16 @@ fn test_openai_function_call(api_key: &str) {
         Arc::new(WeatherExecutor),
     )
     .model("MiniMax-M2.7")
-    .messages(vec![Message::user("北京今天天气怎么样？")])
+    .messages(vec![Message::user("杭州今天天气怎么样？")])
     .max_completion_tokens(4096)
     .send()
     .expect("Failed to send message with tools");
 
-    println!("  Final Response:");
+    println!("  >>>>> Final Response:");
     if let Some(choice) = response.choices.first() {
         println!("  Content: {}", choice.message.content);
     }
+    println!("  >>>>> Final Response with tool result.");
 }
 
 fn test_anthropic_function_call(api_key: &str) {
