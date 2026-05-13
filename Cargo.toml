@@ -4,6 +4,7 @@ members = [
     "crates/openai",
     "crates/anthropic",
     "crates/minimax",
+    "crates/modbus_agent",
 ]
 
 [workspace.package]

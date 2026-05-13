@@ -1,0 +1,8 @@
+[package]
+name = "minimax-modbus-agent"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+openai = { path = "../openai" }
+serde_json = "1.0"

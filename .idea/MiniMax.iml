@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/anthropic/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/minimax/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/openai/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/modbus_agent/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
